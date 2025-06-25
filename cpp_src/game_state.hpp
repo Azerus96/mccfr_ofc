@@ -12,13 +12,12 @@ namespace ofc {
 
     class GameState {
     public:
-        // ... (конструкторы и другие методы остаются без изменений) ...
         GameState(int num_players = 2, int dealer_pos = -1)
             : num_players_(num_players), street_(1), boards_(num_players), discards_(num_players) {
             
             deck_.resize(52);
             std::iota(deck_.begin(), deck_.end(), 0);
-            std::shuffle(deck_.begin(), deck_.end(), rng_);
+            std::shuffle(deck_.begin(), deck_.end(), rng_); // Используем thread_local rng_
 
             if (dealer_pos == -1) {
                 std::uniform_int_distribution<int> dist(0, num_players - 1);
@@ -30,6 +29,8 @@ namespace ofc {
             deal_cards();
         }
 
+        // ... (остальная часть класса остается без изменений) ...
+        // ... (get_payoffs, get_legal_actions, apply_action, etc.) ...
         GameState(const GameState& other) = default;
 
         inline bool is_terminal() const {
@@ -75,16 +76,13 @@ namespace ofc {
             return {p1_total, -p1_total};
         }
 
-        // =================== НОВАЯ ЛОГИКА ГЕНЕРАЦИИ ДЕЙСТВИЙ ===================
         inline std::vector<Action> get_legal_actions() const {
             std::vector<Action> actions;
             if (is_terminal()) return actions;
 
             if (street_ == 1) {
-                // Улица 1: 5 карт
                 generate_abstract_actions_5_cards(dealt_cards_, actions);
             } else {
-                // Улицы 2-5: 3 карты
                 for (int i = 0; i < 3; ++i) {
                     CardSet to_place;
                     Card discarded = dealt_cards_[i];
@@ -92,18 +90,15 @@ namespace ofc {
                     generate_abstract_actions_2_cards(to_place, discarded, actions);
                 }
             }
-            // Убираем дубликаты, если они появились
             std::sort(actions.begin(), actions.end());
             actions.erase(std::unique(actions.begin(), actions.end()), actions.end());
             
-            // Если по какой-то причине не сгенерировалось ни одного действия, добавим одно "случайное"
             if (actions.empty()) {
                 add_fallback_action(actions);
             }
 
             return actions;
         }
-        // ======================================================================
 
         inline GameState apply_action(const Action& action) const {
             GameState next_state(*this);
@@ -145,10 +140,7 @@ namespace ofc {
             deck_.resize(deck_.size() - num_to_deal);
         }
 
-        // =================== НОВЫЕ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===================
         inline void generate_abstract_actions_5_cards(const CardSet& hand, std::vector<Action>& actions) const {
-            // Простая стратегия: кладем 3 на бэк, 2 на мидл.
-            // Генерируем все комбинации C(5,3) для бэка.
             std::vector<int> p(5);
             std::iota(p.begin(), p.end(), 0);
             std::vector<bool> v(3);
@@ -179,7 +171,6 @@ namespace ofc {
 
             if (available_slots.size() < 2) return;
 
-            // Генерируем все комбинации C(N, 2) слотов
             std::vector<int> p(available_slots.size());
             std::iota(p.begin(), p.end(), 0);
             std::vector<bool> v(2);
@@ -191,14 +182,12 @@ namespace ofc {
                 for(size_t i = 0; i < p.size(); ++i) {
                     if (v[i]) chosen_slots.push_back(available_slots[i]);
                 }
-                // Для каждой пары слотов есть 2 перестановки карт
                 actions.push_back({{{cards[0], chosen_slots[0]}, {cards[1], chosen_slots[1]}}, discarded});
                 actions.push_back({{{cards[1], chosen_slots[0]}, {cards[0], chosen_slots[1]}}, discarded});
             } while (std::prev_permutation(v.begin(), v.end()));
         }
         
         inline void add_fallback_action(std::vector<Action>& actions) const {
-            // Если ничего не сгенерировалось, кладем карты на первые доступные места
             const Board& board = boards_[current_player_];
             std::vector<std::pair<std::string, int>> available_slots;
             for(int i=0; i<3; ++i) if(board.top[i] == INVALID_CARD) available_slots.push_back({"top", i});
@@ -222,7 +211,6 @@ namespace ofc {
                 actions.push_back({placement, discarded});
             }
         }
-        // ======================================================================
 
         int num_players_;
         int street_;
@@ -233,6 +221,8 @@ namespace ofc {
         CardSet deck_;
         CardSet dealt_cards_;
         
-        static std::mt19937 rng_;
+        // === ИЗМЕНЕНИЕ ЗДЕСЬ ===
+        // Делаем генератор thread_local, чтобы у каждого потока был свой.
+        static thread_local std::mt19937 rng_;
     };
 }
