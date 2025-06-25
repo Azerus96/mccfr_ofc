@@ -6,11 +6,13 @@
 #include <algorithm>
 #include <iostream>
 #include <functional>
+#include <map>
 
 namespace ofc {
 
     class GameState {
     public:
+        // ... (конструкторы и другие методы остаются без изменений) ...
         GameState(int num_players = 2, int dealer_pos = -1)
             : num_players_(num_players), street_(1), boards_(num_players), discards_(num_players) {
             
@@ -73,22 +75,35 @@ namespace ofc {
             return {p1_total, -p1_total};
         }
 
+        // =================== НОВАЯ ЛОГИКА ГЕНЕРАЦИИ ДЕЙСТВИЙ ===================
         inline std::vector<Action> get_legal_actions() const {
             std::vector<Action> actions;
             if (is_terminal()) return actions;
 
             if (street_ == 1) {
-                generate_placements(dealt_cards_, INVALID_CARD, actions);
+                // Улица 1: 5 карт
+                generate_abstract_actions_5_cards(dealt_cards_, actions);
             } else {
+                // Улицы 2-5: 3 карты
                 for (int i = 0; i < 3; ++i) {
                     CardSet to_place;
                     Card discarded = dealt_cards_[i];
                     for (int j = 0; j < 3; ++j) if (i != j) to_place.push_back(dealt_cards_[j]);
-                    generate_placements(to_place, discarded, actions);
+                    generate_abstract_actions_2_cards(to_place, discarded, actions);
                 }
             }
+            // Убираем дубликаты, если они появились
+            std::sort(actions.begin(), actions.end());
+            actions.erase(std::unique(actions.begin(), actions.end()), actions.end());
+            
+            // Если по какой-то причине не сгенерировалось ни одного действия, добавим одно "случайное"
+            if (actions.empty()) {
+                add_fallback_action(actions);
+            }
+
             return actions;
         }
+        // ======================================================================
 
         inline GameState apply_action(const Action& action) const {
             GameState next_state(*this);
@@ -130,54 +145,84 @@ namespace ofc {
             deck_.resize(deck_.size() - num_to_deal);
         }
 
-        template<typename It>
-        inline bool next_combination(It first, It last, int k) const {
-            if (k == 0 || first == last) return false;
-            It sub_first = first;
-            std::advance(sub_first, (last - first) - k);
-            if (sub_first == last) return false;
-            for (It it1 = sub_first; it1 != last; ++it1) {
-                It it2 = std::upper_bound(first, sub_first, *it1);
-                if (it2 != first) {
-                    std::iter_swap(it1, --it2);
-                    std::rotate(it2 + 1, it1 + 1, last);
-                    std::rotate(sub_first, sub_first + (last - it1 - 1), last);
-                    return true;
+        // =================== НОВЫЕ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===================
+        inline void generate_abstract_actions_5_cards(const CardSet& hand, std::vector<Action>& actions) const {
+            // Простая стратегия: кладем 3 на бэк, 2 на мидл.
+            // Генерируем все комбинации C(5,3) для бэка.
+            std::vector<int> p(5);
+            std::iota(p.begin(), p.end(), 0);
+            std::vector<bool> v(3);
+            std::fill(v.begin(), v.end(), true);
+            v.resize(5, false);
+
+            do {
+                CardSet back_cards, mid_cards;
+                for (int i = 0; i < 5; ++i) {
+                    if (v[i]) back_cards.push_back(hand[i]);
+                    else mid_cards.push_back(hand[i]);
                 }
-            }
-            std::rotate(first, sub_first, last);
-            return false;
+                
+                std::vector<Placement> placement;
+                for(size_t i = 0; i < back_cards.size(); ++i) placement.push_back({back_cards[i], {"bottom", (int)i}});
+                for(size_t i = 0; i < mid_cards.size(); ++i) placement.push_back({mid_cards[i], {"middle", (int)i}});
+                actions.push_back({placement, INVALID_CARD});
+
+            } while (std::prev_permutation(v.begin(), v.end()));
         }
 
-        inline void generate_placements(const CardSet& cards_to_place, Card discarded, std::vector<Action>& actions) const {
+        inline void generate_abstract_actions_2_cards(const CardSet& cards, Card discarded, std::vector<Action>& actions) const {
             const Board& board = boards_[current_player_];
             std::vector<std::pair<std::string, int>> available_slots;
             for(int i=0; i<3; ++i) if(board.top[i] == INVALID_CARD) available_slots.push_back({"top", i});
             for(int i=0; i<5; ++i) if(board.middle[i] == INVALID_CARD) available_slots.push_back({"middle", i});
             for(int i=0; i<5; ++i) if(board.bottom[i] == INVALID_CARD) available_slots.push_back({"bottom", i});
 
-            if (available_slots.size() < cards_to_place.size()) return;
+            if (available_slots.size() < 2) return;
 
-            std::vector<int> slot_indices(available_slots.size());
-            std::iota(slot_indices.begin(), slot_indices.end(), 0);
+            // Генерируем все комбинации C(N, 2) слотов
+            std::vector<int> p(available_slots.size());
+            std::iota(p.begin(), p.end(), 0);
+            std::vector<bool> v(2);
+            std::fill(v.begin(), v.end(), true);
+            v.resize(p.size(), false);
 
-            std::vector<int> c_indices(cards_to_place.size());
-            std::iota(c_indices.begin(), c_indices.end(), 0);
-            
             do {
-                std::vector<int> current_slot_indices(cards_to_place.size());
-                std::copy_n(slot_indices.begin(), cards_to_place.size(), current_slot_indices.begin());
-                
-                do {
-                    std::vector<Placement> current_placement;
-                    for(size_t i = 0; i < cards_to_place.size(); ++i) {
-                        current_placement.push_back({cards_to_place[c_indices[i]], available_slots[current_slot_indices[i]]});
-                    }
-                    actions.push_back({current_placement, discarded});
-                } while(std::next_permutation(c_indices.begin(), c_indices.end()));
-
-            } while (next_combination(slot_indices.begin(), slot_indices.end(), cards_to_place.size()));
+                std::vector<std::pair<std::string, int>> chosen_slots;
+                for(size_t i = 0; i < p.size(); ++i) {
+                    if (v[i]) chosen_slots.push_back(available_slots[i]);
+                }
+                // Для каждой пары слотов есть 2 перестановки карт
+                actions.push_back({{{cards[0], chosen_slots[0]}, {cards[1], chosen_slots[1]}}, discarded});
+                actions.push_back({{{cards[1], chosen_slots[0]}, {cards[0], chosen_slots[1]}}, discarded});
+            } while (std::prev_permutation(v.begin(), v.end()));
         }
+        
+        inline void add_fallback_action(std::vector<Action>& actions) const {
+            // Если ничего не сгенерировалось, кладем карты на первые доступные места
+            const Board& board = boards_[current_player_];
+            std::vector<std::pair<std::string, int>> available_slots;
+            for(int i=0; i<3; ++i) if(board.top[i] == INVALID_CARD) available_slots.push_back({"top", i});
+            for(int i=0; i<5; ++i) if(board.middle[i] == INVALID_CARD) available_slots.push_back({"middle", i});
+            for(int i=0; i<5; ++i) if(board.bottom[i] == INVALID_CARD) available_slots.push_back({"bottom", i});
+
+            CardSet cards_to_place;
+            Card discarded = INVALID_CARD;
+            if (street_ == 1) {
+                cards_to_place = dealt_cards_;
+            } else {
+                cards_to_place = {dealt_cards_[0], dealt_cards_[1]};
+                discarded = dealt_cards_[2];
+            }
+
+            if (available_slots.size() >= cards_to_place.size()) {
+                std::vector<Placement> placement;
+                for(size_t i = 0; i < cards_to_place.size(); ++i) {
+                    placement.push_back({cards_to_place[i], available_slots[i]});
+                }
+                actions.push_back({placement, discarded});
+            }
+        }
+        // ======================================================================
 
         int num_players_;
         int street_;
