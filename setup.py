@@ -4,16 +4,20 @@ import numpy
 import glob
 
 # Находим все C++ исходники, которые нужно скомпилировать
-# Мы берем их напрямую из скопированной библиотеки OMPEval
 ompeval_sources = glob.glob("cpp_src/ompeval/omp/*.cpp")
+
+# Наши собственные исходники
+ofc_sources = [
+    "cpp_src/game_state.cpp"  # <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+]
 
 # Наша Cython-обертка
 cython_ext = Extension(
     "ofc_bot.solver",
-    sources=["ofc_bot/solver.pyx"] + ompeval_sources,
+    sources=["ofc_bot/solver.pyx"] + ompeval_sources + ofc_sources, # Объединяем все исходники
     include_dirs=[
         numpy.get_include(),
-        "cpp_src",  # <--- ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ
+        "cpp_src",
         "cpp_src/ompeval"
     ],
     language="c++",
@@ -23,7 +27,7 @@ cython_ext = Extension(
 
 setup(
     name="ofc_bot",
-    version="1.0.3", # Увеличим версию для ясности
+    version="1.0.4", # Увеличим версию
     author="AI Solver",
     description="A compact, high-performance MCCFR solver for Pineapple OFC poker.",
     ext_modules=cythonize([cython_ext]),
