@@ -13,7 +13,7 @@ cython_ext = Extension(
     sources=["ofc_bot/solver.pyx"] + ompeval_sources,
     include_dirs=[
         numpy.get_include(),
-        "cpp_src",
+        "cpp_src",  # <--- ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ
         "cpp_src/ompeval"
     ],
     language="c++",
@@ -23,7 +23,7 @@ cython_ext = Extension(
 
 setup(
     name="ofc_bot",
-    version="1.0.2",
+    version="1.0.3", # Увеличим версию для ясности
     author="AI Solver",
     description="A compact, high-performance MCCFR solver for Pineapple OFC poker.",
     ext_modules=cythonize([cython_ext]),
