@@ -4,11 +4,9 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <mutex>
 #include <numeric>
 #include <iostream>
 #include <fstream>
-#include <omp.h>
 #include <algorithm>
 
 namespace ofc {
@@ -19,35 +17,19 @@ namespace ofc {
         int num_actions = 0;
     };
 
-    // Структура для хранения одного обновления
-    struct Update {
-        std::string infoset_key;
-        int num_actions;
-        std::vector<double> regret_update;
-        std::vector<double> strategy_update;
-    };
-
     class MCCFRSolver {
     public:
         MCCFRSolver() {}
 
+        // === УБИРАЕМ OPENMP ===
         inline void train(int iterations) {
-            #pragma omp parallel for
             for (int i = 0; i < iterations; ++i) {
-                // У каждого потока будет свой вектор для накопления обновлений
-                thread_local std::vector<Update> local_updates;
-                local_updates.clear();
-
                 GameState initial_state;
-                mccfr_traverse(initial_state, 1.0, 1.0, local_updates);
-
-                // После завершения симуляции, применяем все накопленные обновления
-                apply_updates(local_updates);
+                mccfr_traverse(initial_state, 1.0, 1.0);
             }
         }
 
         inline void save_strategy(const std::string& path) const {
-            std::lock_guard<std::mutex> lock(map_mutex_);
             std::ofstream out(path, std::ios::binary);
             if (!out) throw std::runtime_error("Cannot open file for writing: " + path);
 
@@ -66,7 +48,6 @@ namespace ofc {
         }
 
         inline void load_strategy(const std::string& path) {
-            std::lock_guard<std::mutex> lock(map_mutex_);
             std::ifstream in(path, std::ios::binary);
             if (!in) { std::cerr << "Strategy file not found, starting new." << std::endl; return; }
 
@@ -92,9 +73,8 @@ namespace ofc {
         }
 
     private:
-        // Функция теперь не возвращает Node*, а копирует данные узла
-        inline Node get_node_copy(const std::string& infoset_key, int num_actions) {
-            std::lock_guard<std::mutex> lock(map_mutex_);
+        // Возвращаем обычный get_node, без мьютекса
+        inline Node* get_node(const std::string& infoset_key, int num_actions) {
             auto it = nodes_.find(infoset_key);
             if (it == nodes_.end() || it->second.num_actions != num_actions) {
                 Node new_node;
@@ -102,30 +82,13 @@ namespace ofc {
                 new_node.strategy_sum.assign(num_actions, 0.0);
                 new_node.num_actions = num_actions;
                 nodes_[infoset_key] = new_node;
-                return new_node;
+                return &nodes_[infoset_key];
             }
-            return it->second; // Возвращаем копию
+            return &it->second;
         }
 
-        // Новая функция для применения батча обновлений
-        inline void apply_updates(const std::vector<Update>& updates) {
-            std::lock_guard<std::mutex> lock(map_mutex_);
-            for (const auto& update : updates) {
-                Node& node = nodes_[update.infoset_key]; // Получаем ссылку на узел
-                if (node.num_actions != update.num_actions) {
-                    // Если узел был создан другим потоком в этой же итерации
-                    node.regret_sum.assign(update.num_actions, 0.0);
-                    node.strategy_sum.assign(update.num_actions, 0.0);
-                    node.num_actions = update.num_actions;
-                }
-                for(int i=0; i<update.num_actions; ++i) {
-                    node.regret_sum[i] += update.regret_update[i];
-                    node.strategy_sum[i] += update.strategy_update[i];
-                }
-            }
-        }
-
-        inline std::vector<double> mccfr_traverse(GameState state, double p1_reach, double p2_reach, std::vector<Update>& local_updates) {
+        // Убираем local_updates из аргументов
+        inline std::vector<double> mccfr_traverse(GameState state, double p1_reach, double p2_reach) {
             if (state.is_terminal()) {
                 auto payoffs = state.get_payoffs(evaluator_);
                 return {payoffs.first, payoffs.second};
@@ -134,19 +97,18 @@ namespace ofc {
             int player = state.get_current_player();
             auto legal_actions = state.get_legal_actions();
             if (legal_actions.empty()) {
-                return mccfr_traverse(state.apply_action({{}, INVALID_CARD}), p1_reach, p2_reach, local_updates);
+                return mccfr_traverse(state.apply_action({{}, INVALID_CARD}), p1_reach, p2_reach);
             }
             
             std::string infoset_key = get_infoset_key(state);
             int num_actions = legal_actions.size();
             
-            // Получаем КОПИЮ узла, не блокируя надолго
-            Node node_copy = get_node_copy(infoset_key, num_actions);
+            Node* node = get_node(infoset_key, num_actions);
 
             std::vector<double> strategy(num_actions);
             double total_positive_regret = 0.0;
             for (int i = 0; i < num_actions; ++i) {
-                strategy[i] = (node_copy.regret_sum[i] > 0) ? node_copy.regret_sum[i] : 0.0;
+                strategy[i] = (node->regret_sum[i] > 0) ? node->regret_sum[i] : 0.0;
                 total_positive_regret += strategy[i];
             }
 
@@ -156,36 +118,29 @@ namespace ofc {
                 std::fill(strategy.begin(), strategy.end(), 1.0 / num_actions);
             }
 
+            double reach_prob = (player == 0) ? p1_reach : p2_reach;
+            for (int i = 0; i < num_actions; ++i) {
+                node->strategy_sum[i] += reach_prob * strategy[i];
+            }
+
             std::vector<std::vector<double>> action_utils(num_actions, std::vector<double>(2));
             std::vector<double> node_util(2, 0.0);
 
             for (int i = 0; i < num_actions; ++i) {
                 GameState next_state = state.apply_action(legal_actions[i]);
-                if (player == 0) action_utils[i] = mccfr_traverse(next_state, p1_reach * strategy[i], p2_reach, local_updates);
-                else action_utils[i] = mccfr_traverse(next_state, p1_reach, p2_reach * strategy[i], local_updates);
+                if (player == 0) action_utils[i] = mccfr_traverse(next_state, p1_reach * strategy[i], p2_reach);
+                else action_utils[i] = mccfr_traverse(next_state, p1_reach, p2_reach * strategy[i]);
                 for (int p = 0; p < 2; ++p) node_util[p] += strategy[i] * action_utils[i][p];
             }
 
-            // Накапливаем обновления локально, вместо прямого изменения узла
-            Update update;
-            update.infoset_key = infoset_key;
-            update.num_actions = num_actions;
-            update.regret_update.resize(num_actions);
-            update.strategy_update.resize(num_actions);
-
-            double reach_prob = (player == 0) ? p1_reach : p2_reach;
             for (int i = 0; i < num_actions; ++i) {
                 double regret = action_utils[i][player] - node_util[player];
-                update.regret_update[i] = ((player == 0) ? p2_reach : p1_reach) * regret;
-                update.strategy_update[i] = reach_prob * strategy[i];
+                node->regret_sum[i] += ((player == 0) ? p2_reach : p1_reach) * regret;
             }
-            local_updates.push_back(update);
-
             return node_util;
         }
 
         std::unordered_map<std::string, Node> nodes_;
-        mutable std::mutex map_mutex_;
         HandEvaluator evaluator_;
     };
 }
