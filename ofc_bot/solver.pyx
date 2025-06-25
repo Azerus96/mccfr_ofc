@@ -1,4 +1,4 @@
-# cython: language_level=3, language=c++, include_dirs=../cpp_src/
+# cython: language_level=3, language=c++
 # distutils: language = c++
 from libcpp.string cimport string
 
