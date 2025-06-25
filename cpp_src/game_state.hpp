@@ -12,7 +12,6 @@ namespace ofc {
 
     class GameState {
     public:
-        // ... (конструктор и другие методы остаются без изменений) ...
         GameState(int num_players = 2, int dealer_pos = -1)
             : num_players_(num_players), street_(1), boards_(num_players), discards_(num_players) {
             
@@ -76,22 +75,29 @@ namespace ofc {
         }
 
         inline std::vector<Action> get_legal_actions() const {
-            //std::cout << "C++: get_legal_actions() called for street " << street_ << std::endl;
             std::vector<Action> actions;
-            if (is_terminal()) {
-                //std::cout << "C++: get_legal_actions() returned 0 actions (terminal)." << std::endl;
+            if (is_terminal()) return actions;
+
+            CardSet cards_to_place;
+            Card discarded = INVALID_CARD;
+
+            if (street_ == 1) {
+                cards_to_place = dealt_cards_;
+            } else {
+                // На улицах 2-5 мы должны выбрать 2 из 3 карт.
+                // Генерируем все 3 комбинации.
+                for (int i = 0; i < 3; ++i) {
+                    CardSet current_placement_cards;
+                    Card current_discarded = dealt_cards_[i];
+                    for (int j = 0; j < 3; ++j) {
+                        if (i != j) current_placement_cards.push_back(dealt_cards_[j]);
+                    }
+                    generate_all_placements(current_placement_cards, current_discarded, actions);
+                }
                 return actions;
             }
-
-            generate_smart_actions(actions);
             
-            std::sort(actions.begin(), actions.end());
-            actions.erase(std::unique(actions.begin(), actions.end()), actions.end());
-            
-            if (actions.empty()) {
-                add_fallback_action(actions);
-            }
-            //std::cout << "C++: get_legal_actions() returned " << actions.size() << " actions." << std::endl;
+            generate_all_placements(cards_to_place, discarded, actions);
             return actions;
         }
 
@@ -135,67 +141,51 @@ namespace ofc {
             deck_.resize(deck_.size() - num_to_deal);
         }
 
-        inline void generate_smart_actions(std::vector<Action>& actions) const {
-            if (street_ == 1) {
-                add_placement_action({3, 2, 0}, dealt_cards_, INVALID_CARD, actions);
-                add_placement_action({2, 3, 0}, dealt_cards_, INVALID_CARD, actions);
-                add_placement_action({3, 1, 1}, dealt_cards_, INVALID_CARD, actions);
-                add_placement_action({2, 2, 1}, dealt_cards_, INVALID_CARD, actions);
-            } else {
-                for (int i = 0; i < 3; ++i) {
-                    CardSet to_place;
-                    Card discarded = dealt_cards_[i];
-                    for (int j = 0; j < 3; ++j) if (i != j) to_place.push_back(dealt_cards_[j]);
-                    
-                    add_placement_action({2, 0, 0}, to_place, discarded, actions);
-                    add_placement_action({0, 2, 0}, to_place, discarded, actions);
-                    add_placement_action({0, 0, 2}, to_place, discarded, actions);
-                    add_placement_action({1, 1, 0}, to_place, discarded, actions);
-                    add_placement_action({1, 0, 1}, to_place, discarded, actions);
-                    add_placement_action({0, 1, 1}, to_place, discarded, actions);
-                }
-            }
-        }
-
-        inline void add_placement_action(const std::vector<int>& counts, const CardSet& cards, Card discarded, std::vector<Action>& actions) const {
-            const Board& board = boards_[current_player_];
-            if (board.get_row_cards("bottom").size() + counts[0] > 5 ||
-                board.get_row_cards("middle").size() + counts[1] > 5 ||
-                board.get_row_cards("top").size() + counts[2] > 3) {
-                return;
-            }
-
-            std::vector<Placement> placement;
-            int card_idx = 0;
-            for(int i=0; i<counts[0]; ++i) placement.push_back({cards[card_idx++], {"bottom", (int)board.get_row_cards("bottom").size() + i}});
-            for(int i=0; i<counts[1]; ++i) placement.push_back({cards[card_idx++], {"middle", (int)board.get_row_cards("middle").size() + i}});
-            for(int i=0; i<counts[2]; ++i) placement.push_back({cards[card_idx++], {"top", (int)board.get_row_cards("top").size() + i}});
-            actions.push_back({placement, discarded});
-        }
-
-        inline void add_fallback_action(std::vector<Action>& actions) const {
+        // Новая, корректная, но медленная функция генерации
+        inline void generate_all_placements(const CardSet& cards, Card discarded, std::vector<Action>& actions) const {
             const Board& board = boards_[current_player_];
             std::vector<std::pair<std::string, int>> available_slots;
-            for(int i=0; i<5; ++i) if(board.bottom[i] == INVALID_CARD) available_slots.push_back({"bottom", i});
-            for(int i=0; i<5; ++i) if(board.middle[i] == INVALID_CARD) available_slots.push_back({"middle", i});
             for(int i=0; i<3; ++i) if(board.top[i] == INVALID_CARD) available_slots.push_back({"top", i});
+            for(int i=0; i<5; ++i) if(board.middle[i] == INVALID_CARD) available_slots.push_back({"middle", i});
+            for(int i=0; i<5; ++i) if(board.bottom[i] == INVALID_CARD) available_slots.push_back({"bottom", i});
 
-            CardSet cards_to_place;
-            Card discarded = INVALID_CARD;
+            if (available_slots.size() < cards.size()) return;
 
-            if (street_ == 1) {
-                cards_to_place = dealt_cards_;
-            } else {
-                cards_to_place = {dealt_cards_[0], dealt_cards_[1]};
-                discarded = dealt_cards_[2];
-            }
+            std::vector<int> slot_indices(available_slots.size());
+            std::iota(slot_indices.begin(), slot_indices.end(), 0);
 
-            if (available_slots.size() >= cards_to_place.size()) {
-                std::vector<Placement> placement;
-                for(size_t i = 0; i < cards_to_place.size(); ++i) {
-                    placement.push_back({cards_to_place[i], available_slots[i]});
+            std::vector<int> card_indices(cards.size());
+            std::iota(card_indices.begin(), card_indices.end(), 0);
+
+            std::vector<int> current_slot_selection(cards.size());
+            
+            std::function<void(int, int)> combinations = 
+                [&](int offset, int k) {
+                if (k == 0) {
+                    do {
+                        std::vector<Placement> current_placement;
+                        for(size_t i = 0; i < cards.size(); ++i) {
+                            current_placement.push_back({cards[card_indices[i]], available_slots[current_slot_selection[i]]});
+                        }
+                        actions.push_back({current_placement, discarded});
+                    } while(std::next_permutation(card_indices.begin(), card_indices.end()));
+                    return;
                 }
-                actions.push_back({placement, discarded});
+                for (size_t i = offset; i <= slot_indices.size() - k; ++i) {
+                    current_slot_selection[cards.size() - k] = slot_indices[i];
+                    combinations(i + 1, k - 1);
+                }
+            };
+            
+            // Ограничим количество генерируемых действий для отладки
+            const int ACTION_LIMIT = 100;
+            std::vector<Action> temp_actions;
+            combinations(0, cards.size());
+            
+            // Перемешиваем и обрезаем, чтобы получить репрезентативную выборку
+            std::shuffle(actions.begin(), actions.end(), rng_);
+            if (actions.size() > ACTION_LIMIT) {
+                actions.resize(ACTION_LIMIT);
             }
         }
 
