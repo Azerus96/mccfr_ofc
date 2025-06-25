@@ -1,3 +1,5 @@
+// mccfr_ofc-main/cpp_src/ompeval/omp/Random.h
+
 #pragma once
 #include "../libdivide/libdivide.h"
 #include <cstdint>
@@ -27,8 +29,7 @@ public:
         return result;
     }
 
-    // === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
-    // Добавляем 'constexpr' к методам min() и max()
+    // ИСПРАВЛЕНО: Добавлен 'constexpr' для соответствия стандартному API генераторов.
     static constexpr uint64_t min()
     {
         return 0;
@@ -38,7 +39,6 @@ public:
     {
         return ~(uint64_t)0;
     }
-    // =========================
 
 private:
     static uint64_t rotl(uint64_t x, unsigned k)
