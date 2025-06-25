@@ -8,26 +8,27 @@ ompeval_sources = glob.glob("cpp_src/ompeval/omp/*.cpp")
 
 # Наши собственные исходники
 ofc_sources = [
-    "cpp_src/game_state.cpp"  # <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+    "cpp_src/game_state.cpp"
 ]
 
 # Наша Cython-обертка
 cython_ext = Extension(
     "ofc_bot.solver",
-    sources=["ofc_bot/solver.pyx"] + ompeval_sources + ofc_sources, # Объединяем все исходники
+    sources=["ofc_bot/solver.pyx"] + ompeval_sources + ofc_sources,
     include_dirs=[
         numpy.get_include(),
         "cpp_src",
         "cpp_src/ompeval"
     ],
     language="c++",
-    extra_compile_args=["-std=c++17", "-O3", "-fopenmp", "-march=native"],
-    extra_link_args=["-fopenmp"]
+    # === УБИРАЕМ ФЛАГИ OPENMP ===
+    extra_compile_args=["-std=c++17", "-O3", "-march=native"],
+    extra_link_args=[]
 )
 
 setup(
     name="ofc_bot",
-    version="1.0.4", # Увеличим версию
+    version="1.0.5", # Новая версия для отладки
     author="AI Solver",
     description="A compact, high-performance MCCFR solver for Pineapple OFC poker.",
     ext_modules=cythonize([cython_ext]),
