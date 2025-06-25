@@ -12,6 +12,7 @@ namespace ofc {
 
     class GameState {
     public:
+        // ... (конструктор и другие методы остаются без изменений) ...
         GameState(int num_players = 2, int dealer_pos = -1)
             : num_players_(num_players), street_(1), boards_(num_players), discards_(num_players) {
             
@@ -75,8 +76,12 @@ namespace ofc {
         }
 
         inline std::vector<Action> get_legal_actions() const {
+            //std::cout << "C++: get_legal_actions() called for street " << street_ << std::endl;
             std::vector<Action> actions;
-            if (is_terminal()) return actions;
+            if (is_terminal()) {
+                //std::cout << "C++: get_legal_actions() returned 0 actions (terminal)." << std::endl;
+                return actions;
+            }
 
             generate_smart_actions(actions);
             
@@ -86,7 +91,7 @@ namespace ofc {
             if (actions.empty()) {
                 add_fallback_action(actions);
             }
-
+            //std::cout << "C++: get_legal_actions() returned " << actions.size() << " actions." << std::endl;
             return actions;
         }
 
