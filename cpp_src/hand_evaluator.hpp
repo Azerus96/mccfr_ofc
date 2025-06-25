@@ -1,9 +1,11 @@
+// mccfr_ofc-main/cpp_src/hand_evaluator.hpp
+
 #pragma once
 #include "card.hpp"
 #include <omp/HandEvaluator.h>
 #include <string>
 #include <tuple>
-#include <unordered_map>
+#include <unordered_map> // ИСПРАВЛЕНО: Добавлен для unordered_map
 #include <map>
 #include <vector>
 #include <algorithm>
@@ -48,10 +50,13 @@ namespace ofc {
         }
 
         inline int get_royalty(const CardSet& cards, const std::string& row_name) const {
-            const std::map<std::string, int> ROYALTY_BOTTOM = {{"Straight", 2}, {"Flush", 4}, {"Full House", 6}, {"Four of a Kind", 10}, {"Straight Flush", 15}, {"Royal Flush", 25}};
-            const std::map<std::string, int> ROYALTY_MIDDLE = {{"Three of a Kind", 2}, {"Straight", 4}, {"Flush", 8}, {"Full House", 12}, {"Four of a Kind", 20}, {"Straight Flush", 30}, {"Royal Flush", 50}};
-            const std::map<int, int> ROYALTY_TOP_PAIRS = {{4, 1}, {5, 2}, {6, 3}, {7, 4}, {8, 5}, {9, 6}, {10, 10}, {11, 11}, {12, 12}};
-            const std::map<int, int> ROYALTY_TOP_TRIPS = {{0, 10}, {1, 11}, {2, 12}, {3, 13}, {4, 14}, {5, 15}, {6, 16}, {7, 17}, {8, 18}, {9, 19}, {10, 20}, {11, 21}, {12, 22}};
+            // УЛУЧШЕНО: Замена std::map на более быстрые структуры данных
+            static const std::unordered_map<std::string, int> ROYALTY_BOTTOM = {{"Straight", 2}, {"Flush", 4}, {"Full House", 6}, {"Four of a Kind", 10}, {"Straight Flush", 15}, {"Royal Flush", 25}};
+            static const std::unordered_map<std::string, int> ROYALTY_MIDDLE = {{"Three of a Kind", 2}, {"Straight", 4}, {"Flush", 8}, {"Full House", 12}, {"Four of a Kind", 20}, {"Straight Flush", 30}, {"Royal Flush", 50}};
+            // Ранги: 0..12 (2..A). Пары с 66 (ранг 4) до AA (ранг 12).
+            static const std::array<int, 13> ROYALTY_TOP_PAIRS = {0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9}; // 66 -> 1, 77 -> 2 ... AA -> 9
+            // Трипсы от 222 (ранг 0) до AAA (ранг 12).
+            static const std::array<int, 13> ROYALTY_TOP_TRIPS = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22};
 
             if (cards.empty()) return 0;
             HandRank hr = evaluate(cards);
@@ -59,13 +64,11 @@ namespace ofc {
             if (row_name == "top") {
                 if (hr.type_str == "Trips") {
                     int rank = get_rank(cards[0]);
-                    auto it = ROYALTY_TOP_TRIPS.find(rank);
-                    return (it != ROYALTY_TOP_TRIPS.end()) ? it->second : 0;
+                    if (rank >= 0 && rank < 13) return ROYALTY_TOP_TRIPS[rank];
                 } else if (hr.type_str == "Pair") {
                     std::vector<int> ranks = {get_rank(cards[0]), get_rank(cards[1]), get_rank(cards[2])};
                     int pair_rank = (ranks[0] == ranks[1] || ranks[0] == ranks[2]) ? ranks[0] : ranks[1];
-                    auto it = ROYALTY_TOP_PAIRS.find(pair_rank);
-                    return (it != ROYALTY_TOP_PAIRS.end()) ? it->second : 0;
+                    if (pair_rank >= 4 && pair_rank < 13) return ROYALTY_TOP_PAIRS[pair_rank];
                 }
             } else if (row_name == "middle") {
                 auto it = ROYALTY_MIDDLE.find(hr.type_str);
@@ -90,20 +93,12 @@ namespace ofc {
         }
 
         inline void init_3_card_lookup() {
-            evaluator_3_card_lookup_[12*169+12*13+12] = {1, 6, "Trips"};
-            evaluator_3_card_lookup_[11*169+11*13+11] = {2, 6, "Trips"};
-            evaluator_3_card_lookup_[10*169+10*13+10] = {3, 6, "Trips"};
-            evaluator_3_card_lookup_[9*169+9*13+9] = {4, 6, "Trips"};
-            evaluator_3_card_lookup_[8*169+8*13+8] = {5, 6, "Trips"};
-            evaluator_3_card_lookup_[7*169+7*13+7] = {6, 6, "Trips"};
-            evaluator_3_card_lookup_[6*169+6*13+6] = {7, 6, "Trips"};
-            evaluator_3_card_lookup_[5*169+5*13+5] = {8, 6, "Trips"};
-            evaluator_3_card_lookup_[4*169+4*13+4] = {9, 6, "Trips"};
-            evaluator_3_card_lookup_[3*169+3*13+3] = {10, 6, "Trips"};
-            evaluator_3_card_lookup_[2*169+2*13+2] = {11, 6, "Trips"};
-            evaluator_3_card_lookup_[1*169+1*13+1] = {12, 6, "Trips"};
-            evaluator_3_card_lookup_[0*169+0*13+0] = {13, 6, "Trips"};
+            // Инициализация для троек
+            for (int r = 0; r <= 12; ++r) {
+                evaluator_3_card_lookup_[r*169 + r*13 + r] = {13 - r, 6, "Trips"};
+            }
             int rank_val = 14;
+            // Инициализация для пар
             for (int p = 12; p >= 0; --p) {
                 for (int k = 12; k >= 0; --k) {
                     if (p == k) continue;
@@ -112,6 +107,7 @@ namespace ofc {
                     evaluator_3_card_lookup_[ranks[0]*169+ranks[1]*13+ranks[2]] = {rank_val++, 8, "Pair"};
                 }
             }
+            // Инициализация для старшей карты
             for (int r1 = 12; r1 >= 2; --r1) {
                 for (int r2 = r1 - 1; r2 >= 1; --r2) {
                     for (int r3 = r2 - 1; r3 >= 0; --r3) {
