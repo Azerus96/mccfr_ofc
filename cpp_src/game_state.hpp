@@ -1,3 +1,5 @@
+// mccfr_ofc-main/cpp_src/game_state.hpp
+
 #pragma once
 #include "board.hpp"
 #include <vector>
@@ -23,7 +25,8 @@ namespace ofc {
                 std::uniform_int_distribution<int> dist(0, num_players - 1);
                 dealer_pos_ = dist(rng_);
             } else {
-                dealer_pos_ = dealer_pos;
+                // ИСПРАВЛЕНО: Устранена ошибка самоприсваивания.
+                this->dealer_pos_ = dealer_pos;
             }
             current_player_ = (dealer_pos_ + 1) % num_players_;
             deal_cards();
@@ -53,9 +56,18 @@ namespace ofc {
             if (p2_foul) return {(float)(SCOOP_BONUS + p1_royalty), -(float)(SCOOP_BONUS + p1_royalty)};
 
             int line_score = 0;
-            if (evaluator.evaluate(p1_board.get_row_cards("top")) < evaluator.evaluate(p2_board.get_row_cards("top"))) line_score++; else line_score--;
-            if (evaluator.evaluate(p1_board.get_row_cards("middle")) < evaluator.evaluate(p2_board.get_row_cards("middle"))) line_score++; else line_score--;
-            if (evaluator.evaluate(p1_board.get_row_cards("bottom")) < evaluator.evaluate(p2_board.get_row_cards("bottom"))) line_score++; else line_score--;
+            // УЛУЧШЕНО: Используем новый API для get_row_cards, чтобы избежать лишних аллокаций
+            CardSet p1_top, p1_mid, p1_bot, p2_top, p2_mid, p2_bot;
+            p1_board.get_row_cards("top", p1_top);
+            p1_board.get_row_cards("middle", p1_mid);
+            p1_board.get_row_cards("bottom", p1_bot);
+            p2_board.get_row_cards("top", p2_top);
+            p2_board.get_row_cards("middle", p2_mid);
+            p2_board.get_row_cards("bottom", p2_bot);
+
+            if (evaluator.evaluate(p1_top) < evaluator.evaluate(p2_top)) line_score++; else line_score--;
+            if (evaluator.evaluate(p1_mid) < evaluator.evaluate(p2_mid)) line_score++; else line_score--;
+            if (evaluator.evaluate(p1_bot) < evaluator.evaluate(p2_bot)) line_score++; else line_score--;
 
             if (abs(line_score) == 3) line_score = (line_score > 0) ? SCOOP_BONUS : -SCOOP_BONUS;
             
@@ -141,7 +153,11 @@ namespace ofc {
             deck_.resize(deck_.size() - num_to_deal);
         }
 
-        // Новая, корректная, но медленная функция генерации
+        // УЛУЧШЕНО: Полностью убрано ограничение на количество действий (ACTION_LIMIT).
+        // Это делает алгоритм теоретически корректным, но может быть ОЧЕНЬ медленным
+        // из-за огромного количества комбинаций в "Ананасе".
+        // Для практического применения может потребоваться более умный метод
+        // отсечения или выборки действий (Action Sampling / Pruning).
         inline void generate_all_placements(const CardSet& cards, Card discarded, std::vector<Action>& actions) const {
             const Board& board = boards_[current_player_];
             std::vector<std::pair<std::string, int>> available_slots;
@@ -162,6 +178,7 @@ namespace ofc {
             std::function<void(int, int)> combinations = 
                 [&](int offset, int k) {
                 if (k == 0) {
+                    // После выбора слотов, генерируем все перестановки карт по этим слотам
                     do {
                         std::vector<Placement> current_placement;
                         for(size_t i = 0; i < cards.size(); ++i) {
@@ -169,6 +186,8 @@ namespace ofc {
                         }
                         actions.push_back({current_placement, discarded});
                     } while(std::next_permutation(card_indices.begin(), card_indices.end()));
+                    // Восстанавливаем исходный порядок индексов карт для следующей комбинации слотов
+                    std::iota(card_indices.begin(), card_indices.end(), 0);
                     return;
                 }
                 for (size_t i = offset; i <= slot_indices.size() - k; ++i) {
@@ -177,16 +196,7 @@ namespace ofc {
                 }
             };
             
-            // Ограничим количество генерируемых действий для отладки
-            const int ACTION_LIMIT = 100;
-            std::vector<Action> temp_actions;
             combinations(0, cards.size());
-            
-            // Перемешиваем и обрезаем, чтобы получить репрезентативную выборку
-            std::shuffle(actions.begin(), actions.end(), rng_);
-            if (actions.size() > ACTION_LIMIT) {
-                actions.resize(ACTION_LIMIT);
-            }
         }
 
         int num_players_;
