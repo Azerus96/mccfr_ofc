@@ -21,14 +21,13 @@ cython_ext = Extension(
         "cpp_src/ompeval"
     ],
     language="c++",
-    # === ВОЗВРАЩАЕМ ФЛАГИ OPENMP ===
     extra_compile_args=["-std=c++17", "-O3", "-fopenmp", "-march=native"],
     extra_link_args=["-fopenmp"]
 )
 
 setup(
     name="ofc_bot",
-    version="1.0.6", # Новая отладочная версия
+    version="1.1.0", # Финальная рабочая версия
     author="AI Solver",
     description="A compact, high-performance MCCFR solver for Pineapple OFC poker.",
     ext_modules=cythonize([cython_ext]),
