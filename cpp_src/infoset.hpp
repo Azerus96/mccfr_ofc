@@ -1,3 +1,5 @@
+// mccfr_ofc-main/cpp_src/infoset.hpp
+
 #pragma once
 #include "game_state.hpp"
 #include <string>
@@ -50,13 +52,24 @@ namespace ofc {
         const Board& my_board = state.get_player_board(player);
         const Board& opp_board = state.get_opponent_board(player);
 
+        // УЛУЧШЕНО: Используем новый API для get_row_cards, чтобы избежать лишних аллокаций
+        CardSet my_bot_cards, my_mid_cards, my_top_cards;
+        my_board.get_row_cards("bottom", my_bot_cards);
+        my_board.get_row_cards("middle", my_mid_cards);
+        my_board.get_row_cards("top", my_top_cards);
+
+        CardSet opp_bot_cards, opp_mid_cards, opp_top_cards;
+        opp_board.get_row_cards("bottom", opp_bot_cards);
+        opp_board.get_row_cards("middle", opp_mid_cards);
+        opp_board.get_row_cards("top", opp_top_cards);
+
         ss << "S" << state.get_street() << "|";
-        ss << "B:" << get_row_summary(my_board.get_row_cards("bottom")) << ";";
-        ss << "M:" << get_row_summary(my_board.get_row_cards("middle")) << ";";
-        ss << "T:" << get_row_summary(my_board.get_row_cards("top")) << "|";
-        ss << "OB:" << get_row_summary(opp_board.get_row_cards("bottom")) << ";";
-        ss << "OM:" << get_row_summary(opp_board.get_row_cards("middle")) << ";";
-        ss << "OT:" << get_row_summary(opp_board.get_row_cards("top")) << "|";
+        ss << "B:" << get_row_summary(my_bot_cards) << ";";
+        ss << "M:" << get_row_summary(my_mid_cards) << ";";
+        ss << "T:" << get_row_summary(my_top_cards) << "|";
+        ss << "OB:" << get_row_summary(opp_bot_cards) << ";";
+        ss << "OM:" << get_row_summary(opp_mid_cards) << ";";
+        ss << "OT:" << get_row_summary(opp_top_cards) << "|";
 
         CardSet hand = state.get_dealt_cards();
         std::sort(hand.begin(), hand.end());
