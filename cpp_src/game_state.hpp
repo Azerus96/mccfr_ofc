@@ -74,17 +74,22 @@ namespace ofc {
             return {p1_total, -p1_total};
         }
 
-        // =================== НОВАЯ УЛЬТРА-ПРОСТАЯ ЛОГИКА ===================
         inline std::vector<Action> get_legal_actions() const {
             std::vector<Action> actions;
             if (is_terminal()) return actions;
 
-            // Эта функция теперь ВСЕГДА будет генерировать только одно действие.
-            add_fallback_action(actions);
+            generate_smart_actions(actions);
             
+            // Убираем дубликаты, если они появились
+            std::sort(actions.begin(), actions.end());
+            actions.erase(std::unique(actions.begin(), actions.end()), actions.end());
+            
+            if (actions.empty()) {
+                add_fallback_action(actions);
+            }
+
             return actions;
         }
-        // ======================================================================
 
         inline GameState apply_action(const Action& action) const {
             GameState next_state(*this);
@@ -126,15 +131,63 @@ namespace ofc {
             deck_.resize(deck_.size() - num_to_deal);
         }
 
-        // =================== НОВАЯ УЛЬТРА-ПРОСТАЯ ФУНКЦИЯ ===================
+        inline void generate_smart_actions(std::vector<Action>& actions) const {
+            if (street_ == 1) {
+                // Улица 1: 5 карт. Генерируем несколько осмысленных расстановок.
+                // 1. Положить 3 на бэк, 2 на мидл
+                add_placement_action({3, 2, 0}, dealt_cards_, INVALID_CARD, actions);
+                // 2. Положить 3 на мидл, 2 на бэк
+                add_placement_action({2, 3, 0}, dealt_cards_, INVALID_CARD, actions);
+                // 3. Положить 3 на бэк, 1 на мидл, 1 на топ
+                add_placement_action({3, 1, 1}, dealt_cards_, INVALID_CARD, actions);
+                // 4. Положить 2 на бэк, 2 на мидл, 1 на топ
+                add_placement_action({2, 2, 1}, dealt_cards_, INVALID_CARD, actions);
+            } else {
+                // Улицы 2-5: 3 карты. Пробуем все 3 варианта сброса.
+                for (int i = 0; i < 3; ++i) {
+                    CardSet to_place;
+                    Card discarded = dealt_cards_[i];
+                    for (int j = 0; j < 3; ++j) if (i != j) to_place.push_back(dealt_cards_[j]);
+                    
+                    // Генерируем несколько осмысленных расстановок для 2 карт
+                    // 1. Обе на бэк
+                    add_placement_action({0, 0, 2}, to_place, discarded, actions);
+                    // 2. Обе на мидл
+                    add_placement_action({0, 2, 0}, to_place, discarded, actions);
+                    // 3. Обе на топ
+                    add_placement_action({2, 0, 0}, to_place, discarded, actions);
+                    // 4. Одну на бэк, одну на мидл
+                    add_placement_action({1, 1, 0}, to_place, discarded, actions);
+                    // 5. Одну на бэк, одну на топ
+                    add_placement_action({1, 0, 1}, to_place, discarded, actions);
+                    // 6. Одну на мидл, одну на топ
+                    add_placement_action({0, 1, 1}, to_place, discarded, actions);
+                }
+            }
+        }
+
+        inline void add_placement_action(const std::vector<int>& counts, const CardSet& cards, Card discarded, std::vector<Action>& actions) const {
+            const Board& board = boards_[current_player_];
+            if (board.get_row_cards("bottom").size() + counts[0] > 5 ||
+                board.get_row_cards("middle").size() + counts[1] > 5 ||
+                board.get_row_cards("top").size() + counts[2] > 3) {
+                return; // Невозможное действие
+            }
+
+            std::vector<Placement> placement;
+            int card_idx = 0;
+            for(int i=0; i<counts[0]; ++i) placement.push_back({cards[card_idx++], {"bottom", (int)board.get_row_cards("bottom").size() + i}});
+            for(int i=0; i<counts[1]; ++i) placement.push_back({cards[card_idx++], {"middle", (int)board.get_row_cards("middle").size() + i}});
+            for(int i=0; i<counts[2]; ++i) placement.push_back({cards[card_idx++], {"top", (int)board.get_row_cards("top").size() + i}});
+            actions.push_back({placement, discarded});
+        }
+
         inline void add_fallback_action(std::vector<Action>& actions) const {
-            // Эта функция просто кладет карты на первые попавшиеся свободные места.
-            // Это неоптимально, но гарантированно быстро и без ошибок.
             const Board& board = boards_[current_player_];
             std::vector<std::pair<std::string, int>> available_slots;
-            for(int i=0; i<3; ++i) if(board.top[i] == INVALID_CARD) available_slots.push_back({"top", i});
-            for(int i=0; i<5; ++i) if(board.middle[i] == INVALID_CARD) available_slots.push_back({"middle", i});
             for(int i=0; i<5; ++i) if(board.bottom[i] == INVALID_CARD) available_slots.push_back({"bottom", i});
+            for(int i=0; i<5; ++i) if(board.middle[i] == INVALID_CARD) available_slots.push_back({"middle", i});
+            for(int i=0; i<3; ++i) if(board.top[i] == INVALID_CARD) available_slots.push_back({"top", i});
 
             CardSet cards_to_place;
             Card discarded = INVALID_CARD;
@@ -142,7 +195,6 @@ namespace ofc {
             if (street_ == 1) {
                 cards_to_place = dealt_cards_;
             } else {
-                // Просто берем первые две карты, третью сбрасываем.
                 cards_to_place = {dealt_cards_[0], dealt_cards_[1]};
                 discarded = dealt_cards_[2];
             }
@@ -155,7 +207,6 @@ namespace ofc {
                 actions.push_back({placement, discarded});
             }
         }
-        // ======================================================================
 
         int num_players_;
         int street_;
