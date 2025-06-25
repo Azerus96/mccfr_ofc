@@ -80,7 +80,6 @@ namespace ofc {
 
             generate_smart_actions(actions);
             
-            // Убираем дубликаты, если они появились
             std::sort(actions.begin(), actions.end());
             actions.erase(std::unique(actions.begin(), actions.end()), actions.end());
             
@@ -133,34 +132,21 @@ namespace ofc {
 
         inline void generate_smart_actions(std::vector<Action>& actions) const {
             if (street_ == 1) {
-                // Улица 1: 5 карт. Генерируем несколько осмысленных расстановок.
-                // 1. Положить 3 на бэк, 2 на мидл
                 add_placement_action({3, 2, 0}, dealt_cards_, INVALID_CARD, actions);
-                // 2. Положить 3 на мидл, 2 на бэк
                 add_placement_action({2, 3, 0}, dealt_cards_, INVALID_CARD, actions);
-                // 3. Положить 3 на бэк, 1 на мидл, 1 на топ
                 add_placement_action({3, 1, 1}, dealt_cards_, INVALID_CARD, actions);
-                // 4. Положить 2 на бэк, 2 на мидл, 1 на топ
                 add_placement_action({2, 2, 1}, dealt_cards_, INVALID_CARD, actions);
             } else {
-                // Улицы 2-5: 3 карты. Пробуем все 3 варианта сброса.
                 for (int i = 0; i < 3; ++i) {
                     CardSet to_place;
                     Card discarded = dealt_cards_[i];
                     for (int j = 0; j < 3; ++j) if (i != j) to_place.push_back(dealt_cards_[j]);
                     
-                    // Генерируем несколько осмысленных расстановок для 2 карт
-                    // 1. Обе на бэк
-                    add_placement_action({0, 0, 2}, to_place, discarded, actions);
-                    // 2. Обе на мидл
-                    add_placement_action({0, 2, 0}, to_place, discarded, actions);
-                    // 3. Обе на топ
                     add_placement_action({2, 0, 0}, to_place, discarded, actions);
-                    // 4. Одну на бэк, одну на мидл
+                    add_placement_action({0, 2, 0}, to_place, discarded, actions);
+                    add_placement_action({0, 0, 2}, to_place, discarded, actions);
                     add_placement_action({1, 1, 0}, to_place, discarded, actions);
-                    // 5. Одну на бэк, одну на топ
                     add_placement_action({1, 0, 1}, to_place, discarded, actions);
-                    // 6. Одну на мидл, одну на топ
                     add_placement_action({0, 1, 1}, to_place, discarded, actions);
                 }
             }
@@ -171,7 +157,7 @@ namespace ofc {
             if (board.get_row_cards("bottom").size() + counts[0] > 5 ||
                 board.get_row_cards("middle").size() + counts[1] > 5 ||
                 board.get_row_cards("top").size() + counts[2] > 3) {
-                return; // Невозможное действие
+                return;
             }
 
             std::vector<Placement> placement;
@@ -217,6 +203,6 @@ namespace ofc {
         CardSet deck_;
         CardSet dealt_cards_;
         
-        static thread_local std::mt19937 rng_;
+        static std::mt19937 rng_;
     };
 }
