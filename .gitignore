@@ -40,5 +40,3 @@ cmake_install.cmake
 # Colab
 .ipynb_checkpoints/
 
-# Strategy file
-strategy.bin
