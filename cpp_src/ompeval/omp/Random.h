@@ -1,6 +1,4 @@
-#ifndef OMP_RANDOM_H
-#define OMP_RANDOM_H
-
+#pragma once
 #include "../libdivide/libdivide.h"
 #include <cstdint>
 #include <climits>
@@ -29,15 +27,18 @@ public:
         return result;
     }
 
-    static uint64_t min()
+    // === ИСПРАВЛЕНИЕ ЗДЕСЬ ===
+    // Добавляем 'constexpr' к методам min() и max()
+    static constexpr uint64_t min()
     {
         return 0;
     }
 
-    static uint64_t max()
+    static constexpr uint64_t max()
     {
         return ~(uint64_t)0;
     }
+    // =========================
 
 private:
     static uint64_t rotl(uint64_t x, unsigned k)
@@ -49,6 +50,7 @@ private:
     uint64_t mState[2];
 };
 
+// ... (остальная часть файла остается без изменений) ...
 // Generates non-repeating pseudo random numbers in specified range using a linear congruential generator.
 class UniqueRng64
 {
@@ -216,5 +218,3 @@ private:
 };
 
 }
-
-#endif // OMP_RANDOM_H
